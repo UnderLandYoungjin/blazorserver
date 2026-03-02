@@ -1,0 +1,99 @@
+@page "/chat"
+@using tradesystem.Data
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+@inject AuthenticationStateProvider Auth
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+
+<h3>💬 채팅</h3>
+
+<div id="chatBox"
+     style="height:400px; overflow-y:auto; border:1px solid #ccc;
+            padding:12px; border-radius:8px; background:#f9f9f9;">
+    @foreach (var msg in messages)
+    {
+        bool isMe = msg.UserName == userName;
+        <div class="d-flex @(isMe ? "justify-content-end" : "justify-content-start") mb-2">
+            <div style="max-width:65%;">
+                @if (!isMe)
+                {
+                    <div style="font-size:0.8em; color:#666;">@msg.UserName</div>
+                }
+                <div style="background:@(isMe ? "#0d6efd" : "#e9ecef");
+                            color:@(isMe ? "white" : "black");
+                            padding:8px 12px; border-radius:12px;">
+                    @msg.Message
+                </div>
+                <div style="font-size:0.75em; color:#999;
+                            text-align:@(isMe ? "right" : "left");">
+                    @msg.SentAt.ToString("HH:mm")
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<div class="d-flex mt-2 gap-2">
+    <input @bind="inputMessage"
+           @bind:event="oninput"
+           @onkeydown="OnKeyDown"
+           class="form-control"
+           placeholder="메시지를 입력하세요..." />
+    <button class="btn btn-primary" @onclick="SendMessage">전송</button>
+</div>
+<div class="mt-2 text-muted" style="font-size:0.85em;">
+    접속자: <strong>@userName</strong>
+</div>
+
+@code {
+    List<ChatMessage> messages = new();
+    string inputMessage = "";
+    string userName = "익명";
+    Timer? timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await Auth.GetAuthenticationStateAsync();
+        userName = auth.User.Identity?.Name ?? "익명";
+        await LoadMessages();
+
+        timer = new Timer(async _ =>
+        {
+            await LoadMessages();
+            await InvokeAsync(StateHasChanged);
+        }, null, 3000, 3000);
+    }
+
+    async Task LoadMessages()
+    {
+        messages = await Db.ChatMessages
+            .OrderByDescending(m => m.SentAt)
+            .Take(50)
+            .OrderBy(m => m.SentAt)
+            .ToListAsync();
+    }
+
+    async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(inputMessage)) return;
+
+        Db.ChatMessages.Add(new ChatMessage
+        {
+            UserName = userName,
+            Message = inputMessage.Trim(),
+            SentAt = DateTime.Now
+        });
+        await Db.SaveChangesAsync();
+        inputMessage = "";
+        await LoadMessages();
+    }
+
+    async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SendMessage();
+    }
+
+    public void Dispose() => timer?.Dispose();
+}

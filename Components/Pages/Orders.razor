@@ -1,0 +1,120 @@
+@page "/orders"
+@using tradesystem.Data
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+@inject AuthenticationStateProvider Auth
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<h3>📦 발주 관리</h3>
+
+<div style="border:1px solid #ddd; padding:16px; border-radius:8px; margin-bottom:20px; background:#f8f9fa;">
+    <h5>새 발주 등록</h5>
+    <div class="mb-2">
+        <label>품목명</label>
+        <input @bind="newOrder.ProductName" class="form-control" placeholder="예: 전동드라이버" />
+    </div>
+    <div class="mb-2">
+        <label>수량</label>
+        <input type="number" @bind="newOrder.Quantity" class="form-control" />
+    </div>
+    <div class="mb-2">
+        <label>단가 (USD)</label>
+        <input type="number" @bind="newOrder.UnitPrice" class="form-control" />
+    </div>
+    <button class="btn btn-primary mt-2" @onclick="AddOrder">발주 등록</button>
+    @if (!string.IsNullOrEmpty(errorMsg))
+    {
+        <div class="alert alert-danger mt-2">@errorMsg</div>
+    }
+</div>
+
+@if (orders.Count == 0)
+{
+    <p class="text-muted">등록된 발주가 없습니다.</p>
+}
+else
+{
+    <table class="table table-striped table-hover">
+        <thead class="table-dark">
+            <tr>
+                <th>번호</th>
+                <th>품목명</th>
+                <th>수량</th>
+                <th>단가(USD)</th>
+                <th>합계(USD)</th>
+                <th>상태</th>
+                <th>등록일</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var o in orders)
+            {
+                <tr>
+                    <td>@o.Id</td>
+                    <td>@o.ProductName</td>
+                    <td>@o.Quantity</td>
+                    <td>$@o.UnitPrice</td>
+                    <td>$@(o.Quantity * o.UnitPrice)</td>
+                    <td><span class="badge @GetBadgeColor(o.Status)">@o.Status</span></td>
+                    <td>@o.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    List<Order> orders = new();
+    Order newOrder = new();
+    string errorMsg = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOrders();
+    }
+
+    async Task LoadOrders()
+    {
+        orders = await Db.Orders
+            .OrderByDescending(o => o.CreatedAt)
+            .ToListAsync();
+    }
+
+    async Task AddOrder()
+    {
+        errorMsg = "";
+        if (string.IsNullOrWhiteSpace(newOrder.ProductName))
+        {
+            errorMsg = "품목명을 입력해주세요.";
+            return;
+        }
+        if (newOrder.Quantity <= 0)
+        {
+            errorMsg = "수량은 1 이상이어야 합니다.";
+            return;
+        }
+        if (newOrder.UnitPrice <= 0)
+        {
+            errorMsg = "단가는 0보다 커야 합니다.";
+            return;
+        }
+
+        var auth = await Auth.GetAuthenticationStateAsync();
+        newOrder.UserId = auth.User.Identity?.Name ?? "guest";
+        newOrder.CreatedAt = DateTime.Now;
+        newOrder.Status = "대기중";
+
+        Db.Orders.Add(newOrder);
+        await Db.SaveChangesAsync();
+        await LoadOrders();
+        newOrder = new();
+    }
+
+    string GetBadgeColor(string status) => status switch
+    {
+        "승인" => "bg-success",
+        "거절" => "bg-danger",
+        _ => "bg-warning text-dark"
+    };
+}
